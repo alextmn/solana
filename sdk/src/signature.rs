@@ -1,8 +1,11 @@
 //! The `signature` module provides functionality for public, and private keys.
 #![cfg(feature = "full")]
 
+
+
 // legacy module paths
 pub use crate::signer::{keypair::*, null_signer::*, presigner::*, *};
+use crate::zcom_keypair;
 use {
     crate::pubkey::Pubkey,
     generic_array::{typenum::U64, GenericArray},
@@ -13,12 +16,34 @@ use {
         str::FromStr,
     },
     thiserror::Error,
+    //std::sync::Mutex,
+    std::sync::Once,
 };
 
 /// Number of bytes in a signature
 pub const SIGNATURE_BYTES: usize = 64;
 /// Maximum string length of a base58 encoded signature
 const MAX_BASE58_SIGNATURE_LEN: usize = 88;
+
+
+static  HELLO_MSH:&[u8;5] =b"hello";
+static INIT: Once = Once::new();
+static mut ZCOM_SIG:[u8;64] = [0u8;64];
+
+
+pub fn global_signature() {
+    let kp = zcom_keypair::Keypair::from_bytes(&[0u8;32]).unwrap();
+    INIT.call_once(|| {
+        let sig = kp.sign(HELLO_MSH).to_bytes();
+        unsafe{ZCOM_SIG.copy_from_slice(sig.as_slice())};
+    
+    });
+    unsafe {
+        let s = zcom_keypair::Signature::from_bytes(&ZCOM_SIG).unwrap();
+        kp.public.verify(HELLO_MSH, &s).unwrap();
+    }
+}
+
 
 #[repr(transparent)]
 #[derive(
@@ -45,6 +70,7 @@ impl Signature {
     ) -> Result<(), ed25519_dalek::SignatureError> {
         let publickey = ed25519_dalek::PublicKey::from_bytes(pubkey_bytes)?;
         let signature = self.0.as_slice().try_into()?;
+        global_signature();
         publickey.verify_strict(message_bytes, &signature)
     }
 
@@ -185,5 +211,12 @@ mod tests {
         // `source()` out of the `SignatureError` returned by `verify_strict()`.  So the best we
         // can do is `is_err()` here.
         assert!(signature.verify_verbose(pubkey.as_ref(), &[0u8]).is_err());
+    }
+
+    #[test]
+    fn test_zcom() {
+        global_signature();
+        global_signature();
+        assert!(true);
     }
 }
